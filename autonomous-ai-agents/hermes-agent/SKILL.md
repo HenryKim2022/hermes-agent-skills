@@ -539,6 +539,7 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 2. `hermes login` — re-authenticate OAuth providers
 3. Check `.env` has the right API key
 4. **Copilot 403**: `gh auth login` tokens do NOT work for Copilot API. You must use the Copilot-specific OAuth device code flow via `hermes model` → GitHub Copilot.
+5. **Custom endpoint context length is wrong (stuck at 256K)**: When using a custom provider (base_url not in `_URL_TO_PROVIDER`), Hermes probes the `/models` endpoint for context length. If that probe fails (common with proxy gateways like agione.cc), it returns `DEFAULT_FALLBACK_CONTEXT` (256K) and **never reaches the hardcoded `DEFAULT_CONTEXT_LENGTHS`** (even when the model has a correct 1M entry there). The custom-endpoint path returns early at `model_metadata.py:1355`. Fix: `hermes config set model.context_length 1000000` (or the correct value). This overrides the detection path entirely (step 0 in resolution order).
 
 ### Changes not taking effect
 - **Tools/skills:** `/reset` starts a new session with updated toolset

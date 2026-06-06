@@ -1,18 +1,27 @@
 ---
 name: code-insights
-description: GitLab 代码提交采集与分析 —— 基于分支规则 clone 到本地提取 patch，按天存储
+description: GitLab 代码提交采集与分析（API-only 模式）—— 通过 GitLab REST API 采集 commit + diff，不走 SSH clone
 ---
 
 # code-insights
 
-GitLab 代码提交采集工具。clone 项目到本地，用 git 命令提取 commit patch，按天存储原始数据。
+GitLab 代码提交采集工具。**通过 GitLab REST API 采集 commit + diff**（不走 SSH clone），patch 直接从 API 响应拼装，按天存储。
 
-## 分支规则（与 clone_projects.sh 保持一致）
+## 两种运行模式
+
+| 模式 | 数据来源 | 速度 | 网络依赖 |
+|------|----------|------|----------|
+| **API-only（默认）** | GitLab REST API | 快（无 clone） | 仅需 20080 |
+| SSH clone（旧） | `git clone` 本地提取 | 慢（首次 clone 耗时长） | 需要 20022 SSH |
+
+**推荐 API-only 模式**。collector.py 已默认使用 API 获取 patch，不再依赖 SSH clone。
+
+### 目录结构
 
 | 项目类型 | 分支 | 说明 |
 |----------|------|------|
-| `hypermotion/*` | `saas_qa` | 大部分项目的默认分支 |
 | `atomy/*` | `qa` | atomy 模块固定用 qa 分支 |
+| `hypermotion/*` | `saas_qa` | 大部分项目的默认分支 |
 | `hypermotion/CI-CD` | `master` | CI-CD 固定用 master |
 
 ## 目录结构
@@ -28,17 +37,16 @@ GitLab 代码提交采集工具。clone 项目到本地，用 git 命令提取 c
         └── {commit_id}.detailed.md      ← 代码质量视角：质量 + 效率
 ```
 
-## 采集流程
+## 采集流程（API-only 模式）
 
-1. OAuth token 获取（密码模式）
-2. 遍历 PROJECT_LIST（与 clone_projects.sh 项目列表一致）
+1. OAuth token 获取（密码模式，`get_token()`）
+2. 遍历 `projects.yaml` 中的项目列表
 3. 根据 `resolve_branch()` 确定分支：atomy → qa, CI-CD → master, 其他 → saas_qa
-4. 调用 GitLab Commits API：`?ref_name={branch}&since=&until=`（只拉指定分支，不过 all=true）
-5. 过滤无效 commit（gitlab/bot/system 用户、Merge 分支）
-6. Shallow clone 指定分支到本地临时目录（嵌入认证信息到 URL）
-7. 用 `git show` 逐个保存 patch 文件
-8. 保存 commit 元数据到 commits.json
-9. 删除临时 clone 目录
+4. 调用 GitLab Projects API 搜索项目获取 `project_id`（只搜索项目名，不 URL-encode 斜杠）
+5. 调用 GitLab Commits API：`?ref_name={branch}&since=&until=`（只拉指定分支，不过 all=true）
+6. 过滤无效 commit（author 为 gitlab/bot/system/空的自动化提交）
+7. **通过 Diff API** 获取每个 commit 的 patch 内容，直接写文件（不走 git clone）
+8. 保存 commit 元数据到 `commits.json`
 
 ## 报告阶段
 
@@ -62,24 +70,46 @@ GitLab 代码提交采集工具。clone 项目到本地，用 git 命令提取 c
 - 建议（如果有）
 ```
 
-### Detailed 报告内容
+### Detailed 报告内容（百分制，2026-05-08 更新）
 
-评分哲学：AI 时代，很多事不是能不能，而是想不想。能轻松做到却没做 = 严重失分。
+**核心原则**：不说废话，不写"阶段/评估/说明"等报告腔。理由要有逻辑，直接说问题，不美化缺陷。
 
 ```
-### 1. 代码质量评分（严格 AI 时代标准）
-| 维度 | 评分（1-5）| 评分标准 |
+### 1. 代码质量评分
 
-### 2. 质量分析
-- 主要问题（最多3个，用文件:行号引用，说明 AI 时代为什么这是不应该的）
-- 改进建议（具体可操作，不要空泛）
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 代码规范 | /100 | |
+| Commit 规范 | /100 | ⚠️ 标题与实际内容不符 → 低分 |
+| 可维护性 | /100 | |
+| 安全性 | /100 | |
+| 测试覆盖 | /100 | |
+| **综合** | **/100** | |
 
-### 3. 效率评估（展示推导过程）
-- 代码行数变化：+X / -Y
-- 提交粒度：合理 / 偏大（建议拆成多个 commit）/ 偏小（可合并）
-- 理论开发周期推导（分项 + 汇总）
-- 评估说明（推导过程，不是结论）
+### 2. 理由总结
+
+**功能意图：**（一句话说清楚这个提交想解决什么问题）
+
+**做得好的：**（列出2-3点真正值得肯定的，最多3条）
+
+**主要隐患（5点）：**（分条列出，精确到代码位置引用）
+1.
+2.
+3.
+4.
+5.
+
+### 3. 效率评估
+- 代码行数：+X/-Y
+- 提交粒度：（合理/过粗/过细）及理由
+- 理论开发周期：（短/中/长）+ 理由
 ```
+
+**扣分原则**：
+- Commit 标题与实际内容不符（标题说A实际是B）：40分以下
+- 无测试覆盖：60分以下
+- 静默失败风险（错误仅warning不阻止）：70分以下
+- 前置条件不透明（删注释/配置无说明）：70分以下
 
 ## 使用方式
 
@@ -122,17 +152,30 @@ POST http://192.168.10.254:20080/oauth/token
 
 ### 项目列表
 
-`PROJECTS` 列表定义在 `collector.py` 顶部，格式：
-```python
-PROJECTS = [
-    {"group": "hypermotion", "project": "nezha",     "path_with_namespace": "hypermotion/nezha"},
-    {"group": "hypermotion", "project": "mass",      "path_with_namespace": "hypermotion/mass"},
-    {"group": "hypermotion", "project": "deploy",    "path_with_namespace": "hypermotion/deploy"},
-    {"group": "atomy",       "project": "hamalv3",   "path_with_namespace": "atomy/hamalv3"},
-]
+**`projects.yaml`** 是项目列表的权威来源（不是 collector.py 硬编码）。格式：
+```yaml
+groups:
+  hypermotion:        # ← 这个 key 决定 commits 目录的 group 子目录名
+    - hypermotion/nezha
+    - hypermotion/mass
+  atomy:              # ← atomy/ 项目放这里，确保分支规则正确匹配
+    - atomy/hamalv3
+  income:
+    - hypermotion/income
 ```
 
-按需增删，范围由 Ray 确认后扩展。
+> ⚠️ **路径约定**：YAML 的分组 key（如 `atomy`）会直接作为 `commits/{date}/{group}/{project}/` 的路径前缀。应使用 GitLab namespace 作为分组 key，保持一致。
+
+> ⚠️ **分组 key 决定存储路径**：YAML 分组 key（不是 GitLab namespace）决定 commits 目录结构！
+> - `hypermotion:` 组里写 `- atomy/hamalv3` → 数据存到 `commits/hypermotion/hamalv3/`（group=hypermotion, project=hamalv3）
+> - `atomy:` 组里写 `- atomy/hamalv3` → 数据存到 `commits/atomy/hamalv3/`
+> - **每个项目必须在自己对应的 namespace 分组下**（`atomy/hamalv3` 放在 `atomy:` 组），否则 reporter 找不到数据
+
+> ⚠️ **重复检查**：同一项目不要出现在多个分组里。
+
+> ⚠️ **hamalv3 vs hamal**：GitLab 上 `atomy/hamalv3` 是目前正在使用的，`hypermotion/hamal` 已废弃。两者不要混淆。
+
+按需增删项目，范围由 Ray 确认后扩展。
 
 ### Commits API
 
@@ -144,10 +187,13 @@ GET /projects/{id}/repository/commits?ref_name={branch}&since={after}&until={dat
 
 ### Clone URL 重写
 
-项目原始 URL 为 `ssh://git@office.oneprocloud.com.cn:20022/{path}.git`（DNS 解析不了），重写为 `ssh://devops:devops%40HyperMotion@192.168.10.254:20022/{path}.git`。
+> **collector 用 API-only，已废弃 clone**：collector.py 不再使用 SSH clone，patch 直接从 Diff API 获取。此节仅供 reporter 调试参考。
 
-注意：clone 用 SSH 协议端口 20022，API 用 HTTP 端口 20080。
-密码里的 `@` 要 URL 编码为 `%40`。
+reporter 用的 persistent clone 使用 SSH 协议。项目原始 URL 为 `ssh://git@office.oneprocloud.com.cn:20022/{path}.git`（DNS 解析不了），重写为 `ssh://devops:devops%40HyperMotion@192.168.10.254:20022/{path}.git`。
+
+**注意**：reporter SSH clone 用端口 **20022**（不是 20080）。clone URL 格式：`ssh://git@office.oneprocloud.com.cn:20022/{path_with_namespace}.git`。
+
+Bare clone 存储位置：`~/.hermes/code-insights/repos/{group}/{project}/`（每个项目只 clone 一次，复用）。
 
 ### Shallow Clone
 
@@ -252,10 +298,22 @@ GET /projects/{id}/repository/commits?ref_name=saas_qa&since=&until=
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `GITLAB_URL` | `http://192.168.10.254:20080` | GitLab 地址 |
+| `GITLAB_URL` | `http://192.168.10.254:20080` | GitLab 地址（API 用 HTTP） |
 | `GITLAB_USER` | `devops` | 用户名 |
 | `GITLAB_PASS` | `devops@HyperMotion` | 密码 |
-| `GITLAB_GROUP_ID` | `36` | hypermotion 组 ID |
+
+### 运行 reporter 时需要传入 token
+
+```bash
+# reporter.py 需要 GitLab token，但 ~/.hermes/.gitlab_token 文件可能为空
+# 正确方式：运行时从 OAuth API 动态获取
+GL_TOKEN=$(curl -s -X POST http://192.168.10.254:20080/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{"grant_type":"password","username":"devops","password":"devops@HyperMotion"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+GIT_TOKEN="$GL_TOKEN" python3 reporter.py 2026-04-30
+```
 
 ## 依赖
 
@@ -274,73 +332,20 @@ subprocess.run([
 
 Claude Code 直接读取本地代码仓库（通过 `clone_and_prepare_repo` 切到指定 SHA 的 detached HEAD），可以引用本地文件进行更精准的分析。
 
-### Detailed 报告评分标准（AI 时代严格版）
 
-**评分哲学**：AI 时代，很多事不是能不能，而是想不想。能轻松做到却没做 = 严重失分。
-
-| 维度 | 评分标准 |
-|------|----------|
-| 可读性 | 1分=难以阅读 3分=基本规范 5分=命名清晰+注释充分+结构合理 |
-| 可维护性 | 1分=高耦合低内聚 3分=基本分层合理 5分=职责单一+依赖清晰+扩展性强 |
-| 安全性 | 1分=有严重安全风险 3分=无明显漏洞 5分=有安全意识+防御性编程 |
-| 测试覆盖推断 | 1分=零测试变更 3分=有基本测试 5分=测试充分+边界覆盖 |
-
-### 效率评估推导要求（犀利实锤版）
-
-**核心逻辑**：效率评估的不是"开发周期"，而是**这次提交暴露的研发能力短板**。如果代码质量差需要返工，说明研发考虑欠佳，能力有差距 — 不要给找借口，直接说。
-
-**Prompt 指令**（写在 DETAILED_PROMPT_TPL 里）：
-```
-理论开发周期：（估算这次提交如果一次性写好需要多久，然后指出提交暴露的问题导致的额外消耗，充分暴露研发人员的能力短板。用数字说话，不要客气）
-```
-
-**表格可以有**，但内容要犀利：
-```markdown
-| 阶段 | 理论耗时 | 问题暴露耗时 | 额外消耗 |
-|------|----------|--------------|----------|
-| 功能开发 | X 小时 | - | - |
-| Bug 修复（具体问题） | - | Y 小时 | 未考虑XXX |
-| **总计** | **Z 小时** | **W 小时** | **额外 N%** |
-```
-
-**示例输出**：
-```
-nezha/d760e414 — Add trialed for tenant
-
-代码行数：+102 / -7
-提交粒度：偏大（把trialed筛选和批量更新API混在一个commit里）
-
-理论开发周期：
-
-一次性写好约 3 小时。但提交暴露了：类型转换 bug（"true" in (True,) 返回 False）、UUID join 崩溃（N+1 查询）、事务缺失。靠 review 发现和修复这些问题额外消耗 3.5 小时，效率约 57%。
-
-一个人写代码的习惯好不好，从提交里就能看出来。这个提交反映出来的是：写的时候考虑不够周全，比较毛糙。
-```
-
-**两种输出形式都可以**：
-- 纯自然段落（如上）
-- 表格 + 段落结合（如 nezha/d760e414 的效率评估有表格也有总结段落）
-
-关键是：**不要给返工找借口**，数字要实。
-
-### 质量分析要求
-
-- 主要问题：最多3个，用文件:行号引用，说明"AI 时代为什么这是不应该的"
-- **不再输出"优点"部分**（对研发评价无实质价值）
-- 改进建议：具体可操作，不要空泛
 
 ### 验证方式
 
 **先跑单个 commit 验证 prompt 效果，再跑全量：**
 
 ```bash
-# ❌ 全量跑可能超时（7 commits × 2 报告 × 180s timeout = 可能超过 5 分钟限制）
+# 全量跑
 python reporter.py 2026-04-30
 
-# ✅ 先测单个 commit
-# 编辑 reporter.py 的 main()，只处理一个 commit
-# 或用 python -c "..." 单独调用 process_commit()
+# 先测单个 commit：用 execute_code 或直接写 test 脚本调 process_commit()
 ```
+- 注意：reporter.py 依赖 SSH clone 仓库，如果 VPN 路由有问题会导致 clone 超时
+- 可以用 API-only 模式获取 patch 验证新 prompt 格式（不需要 clone）
 
 ## 报告阶段已知坑
 
@@ -352,3 +357,72 @@ python reporter.py 2026-04-30
 
 ### clone 复用
 `clone_and_prepare_repo()` 只在项目级别执行一次（不是每个 commit 重新 clone），后续 commit 只需 `git checkout` 到对应 SHA。
+
+## 报告阶段已知坑
+
+### patch 过长时自动分块
+`split_patch()` 会按文件拆分 patch，超大文件按 `@@` hunk 段落二次拆分，每个 chunk 单独调用 Claude Code，结果用 `---` 分隔拼接。
+
+### patch 截断保留上下文
+`_split_by_hunes()` 对超大段落截断时保留头尾各 1/3，确保关键逻辑不丢失。
+
+### `git fetch` 超时（reporter）
+reporter 在已有 persistent clone 上执行 `git fetch`（等待 60s 超时），当网络不可达时会等满 60s。一个项目会重试 6 次（retry 次数）。虽然最终会跳过，但会拖慢整体速度（约 7 分钟/项目）。这是已知的非致命问题，不影响报告质量。
+
+### reporter 调试：stdout 缓冲
+reporter 作为后台进程运行时，Python stdout 会被缓冲，实时进度看不到。调试时加 `-u` 参数：
+```bash
+# ❌ 普通后台运行看不到输出
+python3 reporter.py 2026-04-30
+
+# ✅ 加 -u 实时看进度
+PYTHONUNBUFFERED=1 python3 -u reporter.py 2026-04-30
+```
+
+### projects.yaml 分组 key 与存储路径的对应关系
+collector.py 中 commit 数据写入路径：
+```python
+group = projects_yaml_group  # YAML 中的分组 key（不是 GitLab namespace）
+project = project_name       # YAML 中写的路径最后一段
+# → commits/{date}/{group}/{project}/
+```
+- YAML 写 `- atomy/hamalv3` 且分组 key=atomy → `commits/{date}/atomy/hamalv3/`
+- YAML 写 `- atomy/hamalv3` 且分组 key=hypermotion → `commits/{date}/hypermotion/hamalv3/`
+
+reporter 的 `clone_and_prepare_repo()` 用 `path_with_namespace` 查 PROJECTS 找分支，路径解析是独立的。所以 collector 和 reporter 都依赖 YAML 中 project_path（完整 path_with_namespace）匹配 PROJECTS 的 key。
+
+### 确认 `pathy_with_namespace` 正确
+collector 输出的 `commits.json` 中每个 commit 记录 `project_path`（来自 `path_with_namespace`），reporter 据此找 PROJECTS 条目。确保 YAML 中的 project_path 与 GitLab 实际 path_with_namespace 完全一致（包括大小写）。
+
+## 调试记录（2026-05-07）
+
+### collector 从 SSH clone 改为 API-only
+collector.py 重写，不再通过 SSH clone 项目。patch 改为直接调用 GitLab Diff API 获取：
+```
+GET /projects/{id}/repository/commits/{sha}/diff
+```
+Diff API 返回的文件结构与 patch 格式一致，直接拼接即可生成 .patch 文件。
+
+### projects.yaml 路径约定发现
+reporter 读取 `commits/{date}/{group}/{project}/` 路径，其中 `{group}` 来自 YAML 的分组 key，**不是** GitLab namespace。这意味着如果 YAML 分组用 `HyperBDR`，但 collector 实际输出到 `hypermotion/`（因为 `path_with_namespace` 是 `hypermotion/nezha`），就会路径不匹配。
+
+**结论**：YAML 分组 key 必须与 GitLab namespace 一致。正确的 `projects.yaml` 分组 key 是 `hypermotion`（GitLab namespace），而不是 `HyperBDR`。
+
+### atomy/hamalv3 分组修复（2026-05-07）
+症状：reporter 运行时 hypermotion/hamalv3 分支是 `saas_qa`（来自 BRANCH_RULES 的默认规则），但 GitLab 上 `atomy/hamalv3` 的正确分支是 `qa`。
+
+根因：`projects.yaml` 中 `atomy/hamalv3` 被错误地放在了 `hypermotion:` 分组下，导致：
+1. collector 把它当成 `hypermotion/hamalv3` 存储（group key=hypermotion）
+2. reporter 查找 `hypermotion/hamalv3` → 在 BRANCH_RULES 中匹配 `hypermotion/*` → 分支=saas_qa
+3. 但 GitLab 上 `atomy/hamalv3` 应该走 `atomy/*` → 分支=qa
+
+修复：在 `projects.yaml` 中建独立的 `atomy:` 分组，把 `atomy/hamalv3` 移过去：
+```yaml
+atomy:
+  - atomy/hamalv3    # 分支 qa
+```
+
+**验证**：`from reporter import PROJECTS; print(PROJECTS.get('atomy/hamalv3'))` 应显示 `{'path_with_namespace': 'atomy/hamalv3', 'branch': 'qa'}`
+
+### Diff API 的路径字段
+GitLab API 返回的字段在不同版本可能不同（`old_path`/`new_path` vs `old_file_path`/`new_file_path`），collector.py 已用 `.get()` 兼容两种格式。

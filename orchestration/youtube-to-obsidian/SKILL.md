@@ -80,9 +80,32 @@ with open('${VIDEO_PATH%.mp4}.en.vtt', 'w') as f:
         start = seg['start']
         end = seg['end']
         text = seg['text'].strip()
-        f.write(f'{start:.3f} --> {end:.3f}\n{text}\n\n')
+        f.write(f'{start:.3f} --> {end:.3f}\\n{text}\\n\\n')
 "
 ```
+
+### 2c：VTT 格式修正（如 Whisper 转写）
+
+Whisper 输出的 VTT 时间戳格式为 `0.000 --> 4.960`（仅秒.毫秒），但下游 `vtt_parser.py` 期望 `00:00:00.000 --> 00:00:04.960`（含时分秒）。必须转换：
+
+```bash
+python3 -c "
+import re
+with open('INPUT.en.vtt') as f:
+    content = f.read()
+def fix_ts(m):
+    s, e = float(m.group(1)), float(m.group(2))
+    def hms(sec):
+        h=int(sec)//3600; m=(int(sec)%3600)//60; s=sec%60
+        return f'{h:02d}:{m:02d}:{s:06.3f}'
+    return f'{hms(s)} --> {hms(e)}'
+fixed = re.sub(r'(\d+\.?\d*)\s*-->\s*(\d+\.?\d*)', fix_ts, content)
+with open('OUTPUT.en.vtt', 'w') as f:
+    f.write('WEBVTT\\n\\n' + fixed)
+"
+```
+
+> **注意**：此步骤只对 Whisper 转写的 VTT 需要。yt-dlp 下载的原始 VTT 时间戳格式已正确，无需转换。
 
 ---
 
@@ -168,11 +191,17 @@ python3 ~/.hermes/skills-mine/productivity/video-obsidian-save/scripts/formatter
 
 ```bash
 # 检查 Obsidian 文件
-ls ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/{课程名}/
+ls ~/Library/Mobile\\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/{课程名}/
 
 # 检查 frontmatter
-head -15 ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/{课程名}/{课程名}.md
+head -15 ~/Library/Mobile\\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/{课程名}/{课程名}.md
 
 # 检查 Index
-tail -5 ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/Index.md
+tail -5 ~/Library/Mobile\\ Documents/iCloud~md~obsidian/Documents/Ray/Clippings-Videos/Index.md
 ```
+
+## 已知陷阱
+
+1. **`~/.hermes/.env` 变量不自动 export** — Step 3（main.py）和 Step 4（formatter.py）都是 subprocess，不会继承未 export 的环境变量。必须手动加载：`set -a; source ~/.hermes/.env; set +a` 后再运行命令。
+2. **Whisper VTT 时间戳格式** — 见 Step 2c，必须做格式修正才能被 vtt_parser.py 识别。
+3. **yt-download 脚本语法错误** — 旧版 download.sh 有 orphaned `fi` 导致文件重命名失败。如出现 %s 命名的文件无 SANITIZED 前缀，检查脚本是否已更新。

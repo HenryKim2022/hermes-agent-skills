@@ -24,6 +24,12 @@ yarn-error.log*
 .env.local
 .env.*.local
 
+# Hermès curator/tool state
+.curator_backups/
+.curator_state
+.usage.json
+.usage.json.lock
+
 # Hermès skill internal
 **/.skill-tmp/
 **/.cache/

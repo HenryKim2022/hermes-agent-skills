@@ -1,0 +1,69 @@
+# ==========================================================
+# code-insights 项目列表
+# 与 clone_projects.sh 保持同步
+# ==========================================================
+#
+# 分支规则：
+#   atomy/*            → qa
+#   hypermotion/CI-CD  → master
+#   其他               → saas_qa
+#
+# 注意：分组名称用 GitLab namespace（hypermotion/atomy），
+#       方便与已有数据路径保持一致。
+#
+# 认证：SSH 端口 20022，密码 @ 编码为 %40
+# ==========================================================
+
+groups:
+  # HyperBDR 产品线（hypermotion + atomy）
+  hypermotion:
+    - hypermotion/deploy
+    - hypermotion/CI-CD
+    - hypermotion/linux-agent
+    - hypermotion/partclone
+    - hypermotion/windows-agent
+    - hypermotion/WinDsync
+    - hypermotion/exporter
+    - hypermotion/ant
+    - hypermotion/crab
+    - hypermotion/mass
+    - hypermotion/minitgt
+    - hypermotion/nezha
+    - hypermotion/oneway
+    - hypermotion/owl
+    - hypermotion/porter
+    - hypermotion/proxy
+    - hypermotion/revenue
+    - hypermotion/storplus
+    - hypermotion/unicloud
+    - hypermotion/linux-agent-syncer
+    - hypermotion/nirvana
+    - hypermotion/supervisor-dashboard
+    - hypermotion/newmuse
+    - hypermotion/ci-cd-config
+    - hypermotion/images
+    - hypermotion/httpd-coding-builder
+    - hypermotion/SwiftS3Block
+    - atomy/atomy
+    - atomy/atomy-api
+    - atomy/atomy-mistral
+    - atomy/atomy-mistral-lib
+    - atomy/atomy-mistral-plugins
+    - atomy/atomy-obstor
+    - atomy/atomy-unicloud
+    - atomy/atomy-s3block
+    - atomy/HyperUp
+
+  # Atomy 产品线（GitLab namespace: atomy）
+  atomy:
+    - atomy/hamalv3
+
+  # income 产品线
+  income:
+    - hypermotion/income
+    - hypermotion/income_dashboard
+
+  # FC 产品线
+  FC:
+    - hypermotion/prophet
+    - hypermotion/calculator

@@ -135,6 +135,30 @@ Step 7 ─── 输出文件列表
 6. **视频已存在时字幕不丢失** — 脚本已修复：主目录存在时会把新字幕合并进去再删临时目录
 7. **字幕格式统一为 vtt** — 下游 video-obsidian-save 技能依赖 VTT 格式进行解析
 8. **代理速度慢** — 229MB 视频约需 10-15 分钟，属于正常
+9. **Whisper VTT 格式不兼容下游 parser** — Whisper 输出的 VTT 时间戳格式为 `0.000 --> 4.960`（仅秒.毫秒），而下游 `vtt_parser.py` 期望 `00:00:00.000 --> 00:00:04.960` 格式（含时分秒）。需用脚本转换：
+
+   ```bash
+   python3 -c "
+   import re
+   with open('input.vtt') as f:
+       content = f.read()
+   def fix_ts(m):
+       s, e = float(m.group(1)), float(m.group(2))
+       def hms(sec):
+           h=int(sec)//3600; m=(int(sec)%3600)//60; s=sec%60
+           return f'{h:02d}:{m:02d}:{s:06.3f}'
+       return f'{hms(s)} --> {hms(e)}'
+   fixed = re.sub(r'(\d+\.?\d*)\s*-->\s*(\d+\.?\d*)', fix_ts, content)
+   with open('output.vtt', 'w') as f:
+       f.write('WEBVTT\\n\\n' + fixed)
+   "
+   ```
+   
+10. **`~/.hermes/.env` 变量不自动导出** — 脚本使用 `MINIMAX_API_KEY`，但该变量定义在 `.env` 文件中未自动 export。运行下游 pipeline 前需执行：
+
+    ```bash
+    set -a; source ~/.hermes/.env; set +a
+    ```
 
 ## 幂等性保证
 

@@ -120,9 +120,59 @@ python3 ~/.hermes/skills-mine/productivity/video-translate-to-table/scripts/main
 ### 长视频翻译 token 超出限制
 **解决**：tiktoken 精确分批，每批 10 条，2000-4000 tokens/批。
 
+### Whisper VTT 时间戳格式不兼容
+**问题**：Whisper `base` 模型输出的 VTT 时间戳格式为 `0.000 --> 4.960`（仅秒.毫秒，无冒号分隔的时分秒），而 `vtt_parser.py` 期望 `00:00:00.000 --> 00:00:04.960`（含 `HH:MM:SS.mmm`）。结果：`vtt_parser.py` 解析出 0 条碎片。
+
+**解决**：运行转换脚本后再执行 pipeline：
+
+```bash
+python3 -c "
+import re
+with open('input.vtt') as f:
+    content = f.read()
+def fix_ts(m):
+    s, e = float(m.group(1)), float(m.group(2))
+    def hms(sec):
+        h=int(sec)//3600; m=(int(sec)%3600)//60; s=sec%60
+        return f'{h:02d}:{m:02d}:{s:06.3f}'
+    return f'{hms(s)} --> {hms(e)}'
+fixed = re.sub(r'(\d+\.?\d*)\s*-->\s*(\d+\.?\d*)', fix_ts, content)
+with open('output.vtt', 'w') as f:
+    f.write('WEBVTT\\n\\n' + fixed)
+"
+```
+
+### 模型切换（⚠️ 关键）
+
+`paragraph_weaver.py` 和 `translator.py` 原硬编码 `minimax/minimax-m2.7/b1d92` 模型，已改为环境变量可覆盖：
+
+| 脚本 | 环境变量 | 默认值 |
+|------|----------|--------|
+| `paragraph_weaver.py` | `WEAVER_MODEL` | `deepseek/DeepSeek-V4-Flash/1c61f` |
+| `translator.py` | `TRANSLATOR_MODEL` | `deepseek/DeepSeek-V4-Flash/1c61f` |
+
+```bash
+# 默认用 deepseek
+python3 paragraph_weaver.py fragments.json
+# 或用 minimax 兜底
+export WEAVER_MODEL="minimax/minimax-m2.7/b1d92"
+python3 paragraph_weaver.py fragments.json
+```
+
+**已知坑：** 当 DeepSeek V4 Flash 配额耗尽时（返回 429 insufficient_quota），切回 minimax-m2.7/b1d92 作为兜底。两个脚本共用 `MINIMAX_API_KEY` 和 `MINIMAX_BASE_URL`（agione 网关）—— 模型切换只改 model string，不改 endpoint。
+
+### Whisper 性能参考（CPU medium）
+
+| 视频时长 | 处理时间 | 视频大小 |
+|----------|----------|----------|
+| ~6分钟 | ~90分钟 | ~19MB |
+| ~6分钟 | ~136分钟 | ~31MB |
+
+→ CPU medium 极其慢。对于 6 分钟以上视频，建议考虑 tiny/base 模型加速，或用 `speech-to-text` 脚本的 `MODEL` 参数。
+
 ## 依赖
 
 - Python 3.8+
 - `tiktoken`（精确分批）
-- `minimax` API（通过 `~/.hermes/.env` 的 `MINIMAX_API_KEY`）
+- API key（通过 `~/.hermes/.env` 的 `MINIMAX_API_KEY` + `MINIMAX_BASE_URL`）
 - `vtt_parser.py`、`paragraph_weaver.py`、`translator.py`、`main.py`

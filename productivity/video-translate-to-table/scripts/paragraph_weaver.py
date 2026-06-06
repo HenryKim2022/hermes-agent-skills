@@ -19,7 +19,7 @@ from pathlib import Path
 # Minimax API 配置（从环境变量读取，禁止硬编码）
 API_KEY = os.environ["MINIMAX_API_KEY"]
 ENDPOINT = os.environ.get("MINIMAX_BASE_URL", "https://zh.agione.co/hyperone/xapi/api")
-MODEL = "minimax/minimax-m2.7/b1d92"
+MODEL = os.environ.get("WEAVER_MODEL", "deepseek/DeepSeek-V4-Flash/1c61f")
 
 
 def load_minimax_client():

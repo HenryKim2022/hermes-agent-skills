@@ -1,6 +1,6 @@
 ---
 name: gmail-analysis
-description: Gmail邮件分析与批量清理工作流 - 使用gws CLI高效分类和删除邮件
+description: Gmail邮件分析与批量清理工作流 - 使用gws CLI或直接调Gmail REST API高效分类和删除邮件
 category: email
 ---
 
@@ -9,6 +9,7 @@ category: email
 ## 工具
 - `gws` CLI: Google Workspace CLI (`/usr/local/bin/gws`)
 - 配置文件: `~/.config/gws/`
+- 备用方案（gws CLI超时/卡住时）: `references/gws-direct-api.md` — 解密凭据直接调 Gmail REST API
 
 ## 核心命令
 
@@ -108,6 +109,10 @@ params["pageToken"] = next_token
 ```
 
 ### Step 3: 批量获取详情（并行加速）
+
+⚠️ `resultSizeEstimate` 不可靠，Gmail API 会 cap 在固定值（如 201）。实际数量以分页结果为准。
+
+#### 方式 A：gws CLI + ThreadPoolExecutor
 ```python
 import concurrent.futures
 
@@ -135,10 +140,28 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results.append(f.result())
 ```
 
-### Step 4: 整理删除清单后执行删除
+#### 方式 B：直接 REST API + asyncio（gws CLI 超时时使用）
+详见 `references/gws-direct-api.md`。性能参考：875 封邮件，asyncio + httpx 100 并发约 2 分钟。
+
+### Step 4: LLM 按域名分类（大规模旧邮件清理）
+
+对于某一年全部邮件（如 2014 年 875 封），逐封分析耗时长。高效策略：
+
+1. **提取发件人域名** → 按域名分组统计
+2. **LLM 分析每个域名** → 归入 keep / delete / review 三类
+3. **域名级规则**：
+   - `gohighedu.com`, `oneprocloud.com`, `163.com`（教育）→ keep
+   - `linkedin.com`, `agoda.com`, `meetup.com`, `facebook.com` → delete
+   - `gmail.com` 中用户自己发的 → keep；其他联系人 → review
+4. **批量打标签**：delete 类打 `HermesAgent/ToDelete`，review 类打 `HermesAgent/YYYY-Review`
+
+这样可以在几分钟内完成 800+ 封邮件的分类，用户只需确认 review 类即可。
+
+### Step 5: 整理删除清单后执行删除
 ```bash
 gws gmail users messages batch-delete --params '{"userId":"me","ids":["ID1","ID2","ID3"]}'
 ```
+或通过 REST API：`POST /gmail/v1/users/me/messages/batchDelete`
 
 ## 常见坑
 
@@ -151,6 +174,7 @@ gws gmail users messages batch-delete --params '{"userId":"me","ids":["ID1","ID2
 7. **gws send 需要 --json 参数传 raw** — `--params` 传 body 无效，必须用 RFC822 base64 编码通过 --json
 8. **execute_code 批量获取邮件详情容易超时** — 改用 `terminal` 执行 Python 脚本更稳定
 9. **gws list 搜索结果可能远超 maxResults** — Promotions 分类经常有几百封，maxResults 只控制单页大小，需注意是否有多页
+10. **gws CLI 可能因 keyring 问题卡住/超时** — 如果 `gws auth status` 只输出 "Using keyring backend: keyring" 后挂起，说明 keyring 卡住了。绕行方案：解密 `~/.config/gws/credentials.enc` 获取 refresh_token，直接调 Gmail REST API。详见 `references/gws-direct-api.md`
 
 ## 清理经验数据（2026-04-16 实战更新）
 
@@ -304,7 +328,8 @@ gws gmail users labels update \
 **错误处理：**
 - `messages list` 偶尔返回空但 nextPageToken 仍存在 → 循环保护，上限500-600条
 - 少量 trash 失败（~4/100）是正常重试现象，重试即可成功
-- `batchModify` 每批严格 ≤50 封（100封会静默失败：API返回0但标签实际没打上）
+- `batchModify` 每批严格 ≤50 封（超过可能静默失败）
+- ⚠️ **batchModify 返回 HTTP 204 是正常响应**（No Content，batch 操作的标准成功码），不是失败；脚本检查 `r.status_code == 204` 时应视为成功
 - `messages get` 返回的 `labels` 字段永远是空数组，要用 `labelIds` 字段判断标签
 
 **Google Alerts 正确发件人：**

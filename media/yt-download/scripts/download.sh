@@ -218,7 +218,6 @@ for f in glob.glob(os.path.join(final_dir, '*.info.json')):
         print(f'[INFO] info.json 重命名: {basename} → {target}')
         shutil.move(f, os.path.join(final_dir, target))
 PYEOF
-fi
 
 echo ""
 echo "[DONE] 下载完成"
