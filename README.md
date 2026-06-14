@@ -42,7 +42,7 @@ You need to tell Hermes to route all traffic to the 9router servers.
 ### Step 4: Install the Skill
 If you have not done so already, run the installation command:
 ```bash
-hermes skills install "https://github.com"
+hermes skills install "https://github.com/HenryKim2022/hermes-agent-skills"
 ```
 Press `y` and hit Enter when asked to confirm the dangerous verdict message.
 
